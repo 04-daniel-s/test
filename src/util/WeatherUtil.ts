@@ -1,44 +1,11 @@
+import { Hourly, WeatherResult } from "./response/WeatherResult";
+
 export const params = (latitude: string, longitude: string, start_date: string, end_date: string) => {
   return {
     latitude: latitude,
     longitude: longitude,
-    current: [
-      "temperature_2m",
-      "relative_humidity_2m",
-      "apparent_temperature",
-      "is_day",
-      "precipitation",
-      "rain",
-      "showers",
-      "snowfall",
-      "weather_code",
-      "cloud_cover",
-      "wind_speed_10m",
-      "wind_direction_10m",
-      "wind_gusts_10m",
-    ],
-    hourly: [
-      "temperature_2m",
-      "relative_humidity_2m",
-      "apparent_temperature",
-      "precipitation_probability",
-      "precipitation",
-      "rain",
-      "showers",
-      "snowfall",
-      "snow_depth",
-      "weather_code",
-      "cloud_cover",
-      "cloud_cover_low",
-      "cloud_cover_mid",
-      "cloud_cover_high",
-      "visibility",
-      "wind_speed_10m",
-      "wind_direction_10m",
-      "wind_gusts_10m",
-      "uv_index",
-      "sunshine_duration",
-    ],
+    hourly: ["temperature_2m", "rain", "wind_speed_10m"],
+    daily: ["temperature_2m_max", "temperature_2m_min", "rain_sum"],
     start_date: start_date,
     end_date: end_date,
   };
@@ -46,46 +13,42 @@ export const params = (latitude: string, longitude: string, start_date: string, 
 
 const range = (start: number, stop: number, step: number) => Array.from({ length: (stop - start) / step }, (_, i) => start + i * step);
 
-export const formatWeatherData = (current: any, hourly: any, utcOffsetSeconds: number) => {
-  return {
-    current: {
-      time: new Date((Number(current.time()) + utcOffsetSeconds) * 1000),
-      temperature2m: current.variables(0)!.value(),
-      relativeHumidity2m: current.variables(1)!.value(),
-      apparentTemperature: current.variables(2)!.value(),
-      isDay: current.variables(3)!.value(),
-      precipitation: current.variables(4)!.value(),
-      rain: current.variables(5)!.value(),
-      showers: current.variables(6)!.value(),
-      snowfall: current.variables(7)!.value(),
-      weatherCode: current.variables(8)!.value(),
-      cloudCover: current.variables(9)!.value(),
-      windSpeed10m: current.variables(10)!.value(),
-      windDirection10m: current.variables(11)!.value(),
-      windGusts10m: current.variables(12)!.value(),
-    },
-    hourly: {
-      time: range(Number(hourly.time()), Number(hourly.timeEnd()), hourly.interval()).map((t) => new Date((t + utcOffsetSeconds) * 1000)),
-      temperature2m: hourly.variables(0)!.valuesArray()!,
-      relativeHumidity2m: hourly.variables(1)!.valuesArray()!,
-      apparentTemperature: hourly.variables(2)!.valuesArray()!,
-      precipitationProbability: hourly.variables(3)!.valuesArray()!,
-      precipitation: hourly.variables(4)!.valuesArray()!,
-      rain: hourly.variables(5)!.valuesArray()!,
-      showers: hourly.variables(6)!.valuesArray()!,
-      snowfall: hourly.variables(7)!.valuesArray()!,
-      snowDepth: hourly.variables(8)!.valuesArray()!,
-      weatherCode: hourly.variables(9)!.valuesArray()!,
-      cloudCover: hourly.variables(10)!.valuesArray()!,
-      cloudCoverLow: hourly.variables(11)!.valuesArray()!,
-      cloudCoverMid: hourly.variables(12)!.valuesArray()!,
-      cloudCoverHigh: hourly.variables(13)!.valuesArray()!,
-      visibility: hourly.variables(14)!.valuesArray()!,
-      windSpeed10m: hourly.variables(15)!.valuesArray()!,
-      windDirection10m: hourly.variables(16)!.valuesArray()!,
-      windGusts10m: hourly.variables(17)!.valuesArray()!,
-      uvIndex: hourly.variables(18)!.valuesArray()!,
-      sunshineDuration: hourly.variables(19)!.valuesArray()!,
-    },
+const formatHourly = (hourly: any, utcOffsetSeconds: number): Hourly[] => {
+  const formatted = {
+    time: range(Number(hourly.time()), Number(hourly.timeEnd()), hourly.interval()).map((t) => new Date((t + utcOffsetSeconds) * 1000)),
+    temperature2m: hourly.variables(0)!.valuesArray()!,
+    rain: hourly.variables(1)!.valuesArray()!,
+    windSpeed10m: hourly.variables(2)!.valuesArray()!,
   };
+
+  return formatted.time.map((time, index) => ({
+    hour: time.getHours(),
+    temperature: hourly.variables(0)!.valuesArray()![index],
+    rain: hourly.variables(1)!.valuesArray()![index],
+    wind_speed: hourly.variables(2)!.valuesArray()![index],
+  }));
+};
+
+export const formatWeatherData = (daily: any, hourly: any, utcOffsetSeconds: number): { date: string; weather: WeatherResult }[] => {
+  let counter = 24;
+  let result: { date: string; weather: WeatherResult }[] = [];
+
+  const days = range(Number(daily.time()), Number(daily.timeEnd()), daily.interval()).map((t) => new Date((t + utcOffsetSeconds) * 1000));
+
+  for (let i = 0; i < days.length; i++) {
+    const date = days[i].toISOString();
+    const max_temperature = daily.variables(0)!.valuesArray()![i];
+    const min_temperature = daily.variables(1)!.valuesArray()![i];
+    const rain_sum = daily.variables(2)!.valuesArray()![i];
+
+    const formattedHourly = formatHourly(hourly, utcOffsetSeconds);
+    const hourlyArray: Hourly[] = formattedHourly.slice(counter - 24, counter);
+    counter += 24;
+
+    result.push({
+      date: date,
+      weather: { min_temperature, max_temperature, rain_sum, hourly: hourlyArray },
+    });
+  }
+  return result;
 };
